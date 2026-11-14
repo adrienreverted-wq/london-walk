@@ -4,8 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>London Step Tracker</title>
-  <!-- Free Leaflet CSS for the Map -->
-  <link rel="stylesheet" href="https://unpkg.com" />
   <style>
     body { font-family: sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; }
     #controls { padding: 15px; background: #1e293b; color: white; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -15,6 +13,12 @@
     #stats { margin-left: auto; font-size: 14px; }
     #map { flex-grow: 1; width: 100%; }
   </style>
+  <script>
+    const cdn = "https://" + "://cloudflare.com";
+    document.write('<link rel="stylesheet" href="' + cdn + 'leaflet/1.9.4/leaflet.css" />');
+    document.write('<script src="' + cdn + 'leaflet/1.9.4/leaflet.js"><\/script>');
+    document.write('<script src="' + cdn + 'Turf.js/6.5.0/turf.min.js"><\/script>');
+  </script>
 </head>
 <body>
 
@@ -27,80 +31,69 @@
 
   <div id="map"></div>
 
-  <!-- Free Leaflet & Turf.js Libraries -->
-  <script src="https://unpkg.com"></script>
-  <script src="https://unpkg.com"></script>
-
   <script>
-    // 1. Define a sample route across London (Longitude, Latitude format for Turf.js)
-    // Route: Heathrow -> Hyde Park -> Buckingham Palace -> Big Ben -> London Eye -> Tower Bridge
-    const londonRouteCoords = [
-      [-0.4543, 51.4700], // Heathrow Airport
-      [-0.3037, 51.4950], // Kew Gardens area
-      [-0.1657, 51.5073], // Hyde Park
-      [-0.1419, 51.5014], // Buckingham Palace
-      [-0.1246, 51.5007], // Big Ben
-      [-0.1195, 51.5033], // London Eye
-      [-0.0984, 51.5138], // St Paul's Cathedral
-      [-0.0754, 51.5055]  // Tower Bridge (~32 km total)
-    ];
+    window.onload = function() {
+      const londonRouteCoords = [
+        [-0.4543, 51.4700], // Heathrow Airport
+        [-0.3037, 51.4950], // Kew Gardens area
+        [-0.1657, 51.5073], // Hyde Park
+        [-0.1419, 51.5014], // Buckingham Palace
+        [-0.1246, 51.5007], // Big Ben
+        [-0.1195, 51.5033], // London Eye
+        [-0.0984, 51.5138], // St Paul's Cathedral
+        [-0.0754, 51.5055]  // Tower Bridge
+      ];
 
-    const routeLine = turf.lineString(londonRouteCoords);
-    const totalRouteKm = turf.length(routeLine, { units: 'kilometers' });
+      const routeLine = turf.lineString(londonRouteCoords);
+      const totalRouteKm = turf.length(routeLine, { units: 'kilometers' });
 
-    // 2. Initialize the OpenStreetMap via Leaflet
-    const map = L.map('map').setView([51.505, -0.15], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+      const map = L.map('map').setView([51.505, -0.15], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
 
-    // Draw the full route line in blue (swap Longitude/Latitude to Latitude/Longitude for Leaflet)
-    const leafletCoords = londonRouteCoords.map(coord => [coord[1], coord[0]]);
-    L.polyline(leafletCoords, { color: '#3b82f6', weight: 4, opacity: 0.7 }).addTo(map);
+      const leafletCoords = londonRouteCoords.map(function(c) { return [c[1], c[0]]; });
+      L.polyline(leafletCoords, { color: '#3b82f6', weight: 4, opacity: 0.7 }).addTo(map);
 
-    // Create the walker marker at the starting point
-    let marker = L.marker(leafletCoords[0]).addTo(map);
+      let marker = L.marker(leafletCoords[0]).addTo(map);
+      let savedSteps = parseInt(localStorage.getItem('londonSteps')) || 0;
 
-    // 3. Load saved steps from browser storage
-    let savedSteps = parseInt(localStorage.getItem('londonSteps')) || 0;
-    updateMap();
+      window.updateMap = function() {
+        const kmWalked = savedSteps * 0.000762;
+        const cappedKm = Math.min(kmWalked, totalRouteKm);
 
-    function addSteps() {
-      const input = document.getElementById('stepInput');
-      const newSteps = parseInt(input.value);
-      if (!isNaN(newSteps) && newSteps > 0) {
-        savedSteps += newSteps;
-        localStorage.setItem('londonSteps', savedSteps);
-        input.value = '';
-        updateMap();
-      }
-    }
+        const currentPoint = turf.along(routeLine, cappedKm, { units: 'kilometers' });
+        const lng = currentPoint.geometry.coordinates[0];
+        const lat = currentPoint.geometry.coordinates[1];
 
-    function resetProgress() {
-      if (confirm("Reset your London walk back to 0 steps?")) {
-        savedSteps = 0;
-        localStorage.setItem('londonSteps', 0);
-        updateMap();
-      }
-    }
+        marker.setLatLng([lat, lng]);
+        map.panTo([lat, lng]);
 
-    function updateMap() {
-      // Average stride: 1 step = 0.000762 km (0.762 meters)
-      const kmWalked = savedSteps * 0.000762;
-      const cappedKm = Math.min(kmWalked, totalRouteKm);
+        document.getElementById('totalSteps').innerText = savedSteps.toLocaleString();
+        document.getElementById('totalKm').innerText = kmWalked.toFixed(2);
+      };
 
-      // Calculate exact GPS point along the route using Turf.js
-      const currentPoint = turf.along(routeLine, cappedKm, { units: 'kilometers' });
-      const [lng, lat] = currentPoint.geometry.coordinates;
+      window.addSteps = function() {
+        const input = document.getElementById('stepInput');
+        const newSteps = parseInt(input.value);
+        if (!isNaN(newSteps) && newSteps > 0) {
+          savedSteps += newSteps;
+          localStorage.setItem('londonSteps', savedSteps);
+          input.value = '';
+          window.updateMap();
+        }
+      };
 
-      // Move marker and center map
-      marker.setLatLng([lat, lng]);
-      map.panTo([lat, lng]);
+      window.resetProgress = function() {
+        if (confirm("Reset your London walk back to 0 steps?")) {
+          savedSteps = 0;
+          localStorage.setItem('londonSteps', 0);
+          window.updateMap();
+        }
+      };
 
-      // Update display text
-      document.getElementById('totalSteps').innerText = savedSteps.toLocaleString();
-      document.getElementById('totalKm').innerText = kmWalked.toFixed(2);
-    }
+      window.updateMap();
+    };
   </script>
 </body>
 </html>
