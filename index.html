@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>London Step Tracker</title>
+  <link rel="stylesheet" href="https://jsdelivr.net" />
   <style>
     body { font-family: sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; }
     #controls { padding: 15px; background: #1e293b; color: white; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -11,14 +12,8 @@
     button { padding: 8px 15px; border-radius: 4px; border: none; background: #3b82f6; color: white; font-size: 16px; cursor: pointer; }
     button:hover { background: #2563eb; }
     #stats { margin-left: auto; font-size: 14px; }
-    #map { flex-grow: 1; width: 100%; }
+    #map { flex-grow: 1; width: 100%; background: #e2e8f0; }
   </style>
-  <script>
-    const cdn = "https://" + "://cloudflare.com";
-    document.write('<link rel="stylesheet" href="' + cdn + 'leaflet/1.9.4/leaflet.css" />');
-    document.write('<script src="' + cdn + 'leaflet/1.9.4/leaflet.js"><\/script>');
-    document.write('<script src="' + cdn + 'Turf.js/6.5.0/turf.min.js"><\/script>');
-  </script>
 </head>
 <body>
 
@@ -31,69 +26,87 @@
 
   <div id="map"></div>
 
+  <script src="https://jsdelivr.net"></script>
   <script>
-    window.onload = function() {
-      const londonRouteCoords = [
-        [-0.4543, 51.4700],
-        [-0.3037, 51.4950],
-        [-0.1657, 51.5073],
-        [-0.1419, 51.5014],
-        [-0.1246, 51.5007],
-        [-0.1195, 51.5033],
-        [-0.0984, 51.5138],
-        [-0.0754, 51.5055]
-      ];
+    // Route points in [Latitude, Longitude] format for Leaflet
+    const routePoints = [
+      [51.4700, -0.4543], // Heathrow Airport (0 km)
+      [51.4950, -0.3037], // Kew Gardens (~10.8 km)
+      [51.5073, -0.1657], // Hyde Park (~20.4 km)
+      [51.5014, -0.1419], // Buckingham Palace (~22.2 km)
+      [51.5007, -0.1246], // Big Ben (~23.4 km)
+      [51.5033, -0.1195], // London Eye (~23.9 km)
+      [51.5138, -0.0984], // St Paul's Cathedral (~25.8 km)
+      [51.5055, -0.0754]  // Tower Bridge (~27.7 km)
+    ];
 
-      const routeLine = turf.lineString(londonRouteCoords);
-      const totalRouteKm = turf.length(routeLine, { units: 'kilometers' });
+    const map = L.map('map').setView([51.505, -0.15], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
 
-      const map = L.map('map').setView([51.505, -0.15], 12);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(map);
+    L.polyline(routePoints, { color: '#3b82f6', weight: 4, opacity: 0.8 }).addTo(map);
+    let marker = L.marker(routePoints.at(0)).addTo(map);
 
-      const leafletCoords = londonRouteCoords.map(function(c) { return [c.at(1), c.at(0)]; });
-      L.polyline(leafletCoords, { color: '#3b82f6', weight: 4, opacity: 0.7 }).addTo(map);
+    // Calculate distance between coordinates using Haversine formula (no external math library needed)
+    function getSegmentKm(p1, p2) {
+      const R = 6371;
+      const dLat = (p2.at(0) - p1.at(0)) * Math.PI / 180;
+      const dLon = (p2.at(1) - p1.at(1)) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(p1.at(0) * Math.PI / 180) * Math.cos(p2.at(0) * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
 
-      let marker = L.marker(leafletCoords.at(0)).addTo(map);
-      let savedSteps = parseInt(localStorage.getItem('londonSteps')) || 0;
-
-      window.updateMap = function() {
-        const kmWalked = savedSteps * 0.000762;
-        const cappedKm = Math.min(kmWalked, totalRouteKm);
-
-        const currentPoint = turf.along(routeLine, cappedKm, { units: 'kilometers' });
-        const lng = currentPoint.geometry.coordinates.at(0);
-        const lat = currentPoint.geometry.coordinates.at(1);
-
-        marker.setLatLng([lat, lng]);
-        map.panTo([lat, lng]);
-
-        document.getElementById('totalSteps').innerText = savedSteps.toLocaleString();
-        document.getElementById('totalKm').innerText = kmWalked.toFixed(2);
-      };
-
-      window.addSteps = function() {
-        const input = document.getElementById('stepInput');
-        const newSteps = parseInt(input.value);
-        if (!isNaN(newSteps) && newSteps > 0) {
-          savedSteps += newSteps;
-          localStorage.setItem('londonSteps', savedSteps);
-          input.value = '';
-          window.updateMap();
+    function getPositionAtKm(targetKm) {
+      let accumulated = 0;
+      for (let i = 0; i < routePoints.length - 1; i++) {
+        const start = routePoints.at(i);
+        const end = routePoints.at(i + 1);
+        const segLen = getSegmentKm(start, end);
+        if (accumulated + segLen >= targetKm) {
+          const ratio = (targetKm - accumulated) / segLen;
+          const lat = start.at(0) + (end.at(0) - start.at(0)) * ratio;
+          const lng = start.at(1) + (end.at(1) - start.at(1)) * ratio;
+          return [lat, lng];
         }
-      };
+        accumulated += segLen;
+      }
+      return routePoints.at(-1);
+    }
 
-      window.resetProgress = function() {
-        if (confirm("Reset your London walk back to 0 steps?")) {
-          savedSteps = 0;
-          localStorage.setItem('londonSteps', 0);
-          window.updateMap();
-        }
-      };
+    let savedSteps = parseInt(localStorage.getItem('londonSteps')) || 0;
 
-      window.updateMap();
-    };
+    function updateMap() {
+      const kmWalked = savedSteps * 0.000762;
+      const pos = getPositionAtKm(kmWalked);
+      marker.setLatLng(pos);
+      map.panTo(pos);
+      document.getElementById('totalSteps').innerText = savedSteps.toLocaleString();
+      document.getElementById('totalKm').innerText = kmWalked.toFixed(2);
+    }
+
+    function addSteps() {
+      const input = document.getElementById('stepInput');
+      const newSteps = parseInt(input.value);
+      if (!isNaN(newSteps) && newSteps > 0) {
+        savedSteps += newSteps;
+        localStorage.setItem('londonSteps', savedSteps);
+        input.value = '';
+        updateMap();
+      }
+    }
+
+    function resetProgress() {
+      if (confirm("Reset your London walk back to 0 steps?")) {
+        savedSteps = 0;
+        localStorage.setItem('londonSteps', 0);
+        updateMap();
+      }
+    }
+
+    updateMap();
   </script>
 </body>
 </html>
